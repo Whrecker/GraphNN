@@ -279,7 +279,7 @@ feature_importance=0
 model.train()
 ref_embedding,_ = model(ref_graph_data.x, ref_graph_data.edge_index)
 ref_embedding = ref_embedding.detach()
-for epoch in range(2000):
+for epoch in range(3000):
     total_loss = 0
     optimizer.zero_grad()
     for data in training_list:
@@ -293,8 +293,8 @@ for epoch in range(2000):
         print(f"Epoch {epoch}, Loss: {total_loss / len(training_list)}")
     #if total_loss/len(training_list)<0.05:
         #break
-print(feature_importance/(len(training_list) * 5000))
-print(sum(feature_importance/(len(training_list) * 5000)))
+print(feature_importance/(len(training_list) * 2000))
+print(sum(feature_importance/(len(training_list) * 2000)))
 embedding, _ = get_embeddings(model, datas)
 print(embedding)
 embeddings = embedding.mean(axis=1)
@@ -501,17 +501,14 @@ actual_cluster = kmeans.predict(emb_2d_actual)[0]
 print(f"Graph belongs to Cluster {actual_cluster}")
 
 # Show explanations per cluster
-for cluster_id in range(k):
-    print(f"\nFeature contributions to distance from Cluster {cluster_id} centroid:")
-    print("(Positive = moves graph closer to this cluster)")
-    print("(Negative = moves graph away from this cluster)")
+print("(Positive = moves graph closer to this cluster)")
+print("(Negative = moves graph away from this cluster)")
     
-    # Get explanations sorted by absolute value
-    expl_list = exp.as_list(label=cluster_id)
-    expl_list_sorted = sorted(expl_list, key=lambda x: abs(x[1]), reverse=True)
+expl_list = exp.as_list(label=0)
+expl_list_sorted = sorted(expl_list, key=lambda x: abs(x[1]), reverse=True)
     
-    for feature, weight in expl_list_sorted[:15]:  # Top 15 features
-        print(f"{feature:>20}: {weight:>8.4f}")
+for feature, weight in expl_list_sorted[:15]:  # Top 15 features
+    print(f"{feature:>20}: {weight:>8.4f}")
 
 # ==== Visualize Important Nodes ====
 print("\nVisualizing important nodes...")
@@ -529,6 +526,3 @@ def visualize_important_nodes(exp, cluster_id, top_n=5):
 # Visualize for actual cluster
 visualize_important_nodes(exp, actual_cluster)
 
-# Visualize for opposite cluster
-opposite_cluster = 1 - actual_cluster
-visualize_important_nodes(exp, opposite_cluster)
