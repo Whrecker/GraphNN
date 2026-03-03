@@ -287,7 +287,7 @@ node_importance = torch.ones(ref_graph_data.x.size(0))
 node_importance[0] = 2.0
 
 
-for epoch in range(10001):
+for epoch in range(101):
     model.train()
     optimizer.zero_grad()
 
@@ -302,13 +302,14 @@ for epoch in range(10001):
     
     labels = torch.tensor([1]*len(pos_similarity)+[0]*len(neg_similarities),dtype=float)
     loss = criterion(predictions, labels)
+    
     loss = (loss * node_importance.view(-1, 1)).mean()
+    
+    
     loss.backward()
     optimizer.step()
     # Logging every 100 epochs
     if epoch % 100 == 0:
-        print(predictions)
-        print(labels)
         with torch.no_grad():
             test_score_1 = torch.sigmoid(model(ref_graph_data, test1)).item()
             test_score_2 = torch.sigmoid(model(ref_graph_data, test2)).item()
@@ -325,13 +326,11 @@ with torch.no_grad():
             score=round(torch.sigmoid(model(ref_graph_data,datas[i])).item(),2)
             if score>.5:
                 acc_counter+=1
-            print("should be above .5",score)
         if i>=len(l2) and i<len(l2)+len(l3):
             counter+=1
             score=round(torch.sigmoid(model(ref_graph_data,datas[i])).item(),2)
             if score<.5:
                 acc_counter+=1
-            print("should be below .5",score)
 print(acc_counter/counter)
 
 print(round(torch.sigmoid(model(ref_graph_data,test1)).item(),2))
@@ -364,7 +363,7 @@ for i in range(len(partial_test_list1)):
 print(acc_counter/(len(partial_test_list1)*2))
 
 
-for epoch in range(10001):
+for epoch in range(101):
     model2.train()
     optimizer2.zero_grad()
 
@@ -384,8 +383,7 @@ for epoch in range(10001):
     optimizer2.step()
     # Logging every 100 epochs
     if epoch % 100 == 0:
-        print(predictions)
-        print(labels)
+        
         with torch.no_grad():
             test_score_1 = torch.sigmoid(model2(ref_graph_data, test1)).item()
             test_score_2 = torch.sigmoid(model2(ref_graph_data, test2)).item()
