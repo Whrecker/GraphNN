@@ -185,8 +185,7 @@ for i in os.listdir("C:\\Users\\jag7b\\project ankit sir\\healty"):
             data_test = pd.concat([data_test, df])    
         elif counter>10 and counter <=20:
             df = pd.read_excel("C:\\Users\\jag7b\\project ankit sir\\healty\\" + i)
-            #add pd.concat if performance is bad
-            data_train = df
+            data_train = pd.concat([data_train, df]) if not data_train.empty else df
         else:
             df = pd.read_excel("C:\\Users\\jag7b\\project ankit sir\\healty\\" + i)
             l2.append(df)
@@ -231,7 +230,7 @@ test2=create_graph_data(getting_data_in_dict(data_train_dif),encoder,encoder2,re
 
 # Initialize model, optimizer, and loss function
 model = G2GSimilarityNet(input_dim=ref_graph_data.x.size(1), hidden_dim=128, output_dim=16)
-optimizer = optim.Adam(model.parameters(), lr=0.0001)  # Adjusted learning rate
+optimizer = optim.Adam(model.parameters(), lr=0.01)  # Adjusted learning rate
 criterion = nn.BCEWithLogitsLoss()
 datas=[]
 for i in l2:
@@ -243,7 +242,7 @@ for i in l4:
 print(getting_data_in_dict(data_test))
 print(getting_data_in_dict(l2[0]))
 
-for epoch in range(1501):
+for epoch in range(1000):
     model.train()
     optimizer.zero_grad()
 
@@ -262,26 +261,36 @@ for epoch in range(1501):
     optimizer.step()
     # Logging every 100 epochs
     if epoch % 100 == 0:
-        print(predictions)
-        print(labels)
         with torch.no_grad():
             test_score_1 = torch.sigmoid(model(ref_graph_data, test1)).item()
             test_score_2 = torch.sigmoid(model(ref_graph_data, test2)).item()
         print(f"Epoch {epoch}: Loss={loss.item():.4f}, Test1={round(test_score_1, 2)}, Test2={round(test_score_2, 2)}")
 
-acc_counter=0
+tp=0; fp=0; fn=0; tn=0
 for i in range(len(datas)):
     if i>=len(l2)+len(l3)-1:
         score=round(torch.sigmoid(model(ref_graph_data,datas[i])).item(),2)
         if score>.5:
-            acc_counter+=1
-        print("should be above .5",score)
+            tp+=1
+        else:
+            fn+=1
     if i>=len(l2)-1 and i<len(l2)+len(l3)-1:
         score=round(torch.sigmoid(model(ref_graph_data,datas[i])).item(),2)
         if score<.5:
-            acc_counter+=1
-        print("should be below .5",score)
-print(acc_counter/(len(l3)+len(l4)))
-
-print(round(torch.sigmoid(model(ref_graph_data,test1)).item(),2))
-print(round(torch.sigmoid(model(ref_graph_data,test2)).item(),2))
+            tn+=1
+        else:
+            fp+=1
+acc = (tp+tn)/(tp+tn+fp+fn+1e-9)
+prec = tp/(tp+fp+1e-9)
+rec = tp/(tp+fn+1e-9)
+res_df = pd.DataFrame({"File": ["gnn_pytorch.py"], "Technique": ["GAT Similarity"], "Accuracy": [acc], "Precision": [prec], "Recall": [rec]})
+import os
+try:
+    if os.path.exists("metrics_results.xlsx"):
+        with pd.ExcelWriter("metrics_results.xlsx", mode="a", engine="openpyxl", if_sheet_exists="overlay") as writer:
+            res_df.to_excel(writer, startrow=writer.sheets["Sheet1"].max_row, index=False, header=False)
+    else:
+        res_df.to_excel("metrics_results.xlsx", index=False)
+except Exception as e:
+    print(e)
+print("Metrics saved.")

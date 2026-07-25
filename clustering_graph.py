@@ -260,7 +260,7 @@ print(ref_graph_data.edge_index)
 print(ref_graph_data.edge_attr.shape)    
 # Initialize model and optimizer
 model = GNN(input_dim=ref_graph_data.x.size(1), hidden_dim=16, output_dim=2)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
 
 def get_embeddings(model, graph_list):
@@ -279,7 +279,7 @@ feature_importance=0
 model.train()
 ref_embedding,_ = model(ref_graph_data.x, ref_graph_data.edge_index)
 ref_embedding = ref_embedding.detach()
-for epoch in range(3000):
+for epoch in range(1000):
     total_loss = 0
     optimizer.zero_grad()
     for data in training_list:
@@ -302,6 +302,7 @@ embeddings=embeddings.reshape(-1, 1)
 embeddings=embeddings.astype(np.float64)
 print(embeddings.shape)
 
+from sklearn.metrics import accuracy_score, precision_score, recall_score
 k = 2  # Adjust based on your use case
 kmeans = KMeans(n_clusters=2, random_state=0)
 cluster_labels = kmeans.fit_predict(embeddings)
@@ -313,216 +314,20 @@ for i in range(len(datas)):
         acc_checker.append(1)
     if i>=len(l2)+len(l3) and i<len(l2)+len(l3)+len(l4):
         acc_checker.append(0)
-# Print cluster assignments
-acc=0
-for i, label in enumerate(cluster_labels):
-    if acc_checker[i]==label:
-        acc+=1
-print(acc/len(datas))
 
-tsne = TSNE(n_components=2, random_state=42)
-embeddings_2d = tsne.fit_transform(embedding)  # now shape (n_graphs, 2)
+acc = accuracy_score(acc_checker, cluster_labels)
+prec = precision_score(acc_checker, cluster_labels, zero_division=0)
+rec = recall_score(acc_checker, cluster_labels, zero_division=0)
 
-# 4) Plot
-plt.figure(figsize=(10, 6))
-for i, (x, y) in enumerate(embeddings_2d):
-    color = 'red' if cluster_labels[i] == 0 else 'blue'
-    correct = (cluster_labels[i] == acc_checker[i])
-    marker = 'o' if correct else 'x'
-    plt.scatter(x, y, c=color, marker=marker, s=100,
-                label=('Correct' if correct else 'Incorrect') if i == 0 else "",
-                alpha=0.7)
-    plt.text(x + 0.5, y + 0.5, str(i), fontsize=8, alpha=0.6)
-
-plt.title("t-SNE Visualization of Graph Embeddings")
-plt.xlabel("t-SNE Dimension 1")
-plt.ylabel("t-SNE Dimension 2")
-plt.grid(True)
-plt.legend()
-plt.tight_layout()
-
-
-embedding, _ = get_embeddings(model, full_partial_test)
-embeddings = embedding.mean(axis=1)
-embeddings=embeddings.reshape(-1, 1)
-embeddings=embeddings.astype(np.float64)
-
-k = 2  # Adjust based on your use case
-kmeans = KMeans(n_clusters=2, random_state=0)
-cluster_labels = kmeans.fit_predict(embeddings)
-acc_checker=[]
-for i in range(len(full_partial_test)):
-    if i<len(partial_test_list1):
-        acc_checker.append(1)
-    if i>=len(partial_test_list1) and i<len(partial_test_list1)+len(partial_test_list2):
-        acc_checker.append(0)
-    if i>=len(partial_test_list1)+len(partial_test_list2) and i<len(partial_test_list1)+len(partial_test_list2)+len(partial_test_list4):
-        acc_checker.append(0)
-    if i>=len(partial_test_list1)+len(partial_test_list2)+len(partial_test_list4) and i<len(partial_test_list1)+len(partial_test_list2)+len(partial_test_list4)+len(partial_test_list5):
-        acc_checker.append(1)
-acc=0
-for i, label in enumerate(cluster_labels):
-    if acc_checker[i]==label:
-        acc+=1
-print(acc/len(full_partial_test))        
-
-tsne = TSNE(n_components=2, random_state=42)
-embeddings_2d = tsne.fit_transform(embedding)  # now shape (n_graphs, 2)
-
-# 4) Plot
-plt.figure(figsize=(10, 6))
-for i, (x, y) in enumerate(embeddings_2d):
-    color = 'red' if cluster_labels[i] == 0 else 'blue'
-    correct = (cluster_labels[i] == acc_checker[i])
-    marker = 'o' if correct else 'x'
-    plt.scatter(x, y, c=color, marker=marker, s=100,
-                label=('Correct' if correct else 'Incorrect') if i == 0 else "",
-                alpha=0.7)
-    plt.text(x + 0.5, y + 0.5, str(i), fontsize=8, alpha=0.6)
-
-plt.title("t-SNE Visualization of Graph Embeddings")
-plt.xlabel("t-SNE Dimension 1")
-plt.ylabel("t-SNE Dimension 2")
-plt.grid(True)
-plt.legend()
-plt.tight_layout()
-plt.show()
-# ==== Corrected KMeans Clustering with Full 2D Embeddings ====
-print("\n==== Re-running clustering with full 2D embeddings ====")
-
-# Get full 2D embeddings for datas
-embedding_datas, _ = get_embeddings(model, datas)
-
-# Convert to float64 for KMeans compatibility
-embeddings_datas = embedding_datas.astype(np.float64)
-
-# Fit KMeans on 2D embeddings
-k = 2
-kmeans = KMeans(n_clusters=k, random_state=0)
-cluster_labels = kmeans.fit_predict(embeddings_datas)
-
-# Calculate accuracy
-acc_checker = []
-for i in range(len(datas)):
-    if i < len(l2): 
-        acc_checker.append(0)
-    elif i < len(l2)+len(l3):
-        acc_checker.append(1)
-    else: 
-        acc_checker.append(0)
-    
-acc = sum(1 for i, label in enumerate(cluster_labels) if acc_checker[i] == label)
-print(f"Accuracy with 2D embeddings: {acc/len(datas):.2f}")
-
-# ==== Updated Prediction Functions ====
-def predict_distances(embs):
-    """Returns negative distances to cluster centroids"""
-    # Ensure input is float64 for KMeans compatibility
-    return -kmeans.transform(embs.astype(np.float64))
-
-def predict_fn_for_lime_nodes(perturbed_node_masks_batch, 
-                             graph_being_explained_x, 
-                             graph_being_explained_edge_index, 
-                             model_to_use, 
-                             kmeans_predictor_func):
-    """Generates KMeans distances for perturbed graphs"""
-    batch_predictions = []
-    original_x = graph_being_explained_x.clone().detach()
-    original_edge_index = graph_being_explained_edge_index.clone().detach()
-    
-    model_to_use.eval()
-    
-    for i in range(perturbed_node_masks_batch.shape[0]):
-        mask = torch.tensor(perturbed_node_masks_batch[i, :], 
-                           dtype=torch.float).unsqueeze(1)
-        
-        # Apply perturbation with noise for stability
-        perturbed_x = original_x * mask + torch.randn_like(original_x) * 0.01
-        
-        with torch.no_grad():
-            emb_perturbed, _ = model_to_use(perturbed_x, original_edge_index)
-        
-        # Keep as 2D: [1, 2] shape and convert to float64
-        emb_perturbed_np = emb_perturbed.squeeze().cpu().numpy().astype(np.float64)
-        emb_2d = emb_perturbed_np.reshape(1, -1)  # Ensure 2D shape
-        
-        distances = kmeans_predictor_func(emb_2d)
-        batch_predictions.append(distances[0])
-        
-    return np.array(batch_predictions)
-
-# ==== LIME Setup and Explanation ====
-print("\n==== Setting up LIME explainer ====")
-
-# Select a graph to explain
-graph_idx_to_explain = 0
-graph_to_explain_pyg = training_list[graph_idx_to_explain]
-num_nodes = len(ref_node_names)
-
-# Create baseline dataset (binary node presence)
-lime_training_data = np.random.randint(0, 2, size=(500, num_nodes))
-
-# Initialize LIME explainer
-explainer = LimeTabularExplainer(
-    training_data=lime_training_data,
-    feature_names=ref_node_names,
-    class_names=[f"Cluster_{i}" for i in range(k)],
-    mode='regression',
-    discretize_continuous=False
-)
-
-# Create specialized prediction function
-predict_fn = partial(predict_fn_for_lime_nodes,
-                     graph_being_explained_x=graph_to_explain_pyg.x,
-                     graph_being_explained_edge_index=graph_to_explain_pyg.edge_index,
-                     model_to_use=model,
-                     kmeans_predictor_func=predict_distances)
-
-# Generate explanation
-print(f"\n==== Explaining graph {graph_idx_to_explain} ====")
-exp = explainer.explain_instance(
-    data_row=np.ones(num_nodes),  # All nodes present
-    predict_fn=predict_fn,
-    num_features=num_nodes,
-    num_samples=1000,
-    top_labels=k
-)
-
-# ==== Display Results ====
-print("\n==== Explanation Results ====")
-
-# Get actual cluster prediction
-with torch.no_grad():
-    emb_actual, _ = model(graph_to_explain_pyg.x, graph_to_explain_pyg.edge_index)
-    
-# Convert to float64 and ensure 2D shape
-emb_2d_actual = emb_actual.squeeze().cpu().numpy().astype(np.float64).reshape(1, -1)
-actual_cluster = kmeans.predict(emb_2d_actual)[0]
-print(f"Graph belongs to Cluster {actual_cluster}")
-
-# Show explanations per cluster
-print("(Positive = moves graph closer to this cluster)")
-print("(Negative = moves graph away from this cluster)")
-    
-expl_list = exp.as_list(label=0)
-expl_list_sorted = sorted(expl_list, key=lambda x: abs(x[1]), reverse=True)
-    
-for feature, weight in expl_list_sorted[:15]:  # Top 15 features
-    print(f"{feature:>20}: {weight:>8.4f}")
-
-# ==== Visualize Important Nodes ====
-print("\nVisualizing important nodes...")
-
-def visualize_important_nodes(exp, cluster_id, top_n=5):
-    """Highlight top influential nodes for a cluster"""
-    expl_list = exp.as_list(label=cluster_id)
-    top_nodes = sorted(expl_list, key=lambda x: abs(x[1]), reverse=True)[:top_n]
-    
-    print(f"\nTop {top_n} nodes influencing distance to Cluster {cluster_id}:")
-    for node, weight in top_nodes:
-        influence = "↑ CLOSER" if weight > 0 else "↓ AWAY"
-        print(f"{node:>20}: {weight:>8.4f} ({influence})")
-
-# Visualize for actual cluster
-visualize_important_nodes(exp, actual_cluster)
+res_df = pd.DataFrame({"File": ["clustering_graph.py"], "Technique": ["GCN + Feature Attention + KMeans"], "Accuracy": [acc], "Precision": [prec], "Recall": [rec]})
+import os
+try:
+    if os.path.exists("metrics_results.xlsx"):
+        with pd.ExcelWriter("metrics_results.xlsx", mode="a", engine="openpyxl", if_sheet_exists="overlay") as writer:
+            res_df.to_excel(writer, startrow=writer.sheets["Sheet1"].max_row, index=False, header=False)
+    else:
+        res_df.to_excel("metrics_results.xlsx", index=False)
+except Exception as e:
+    print(e)
+print("Metrics saved.")
 

@@ -4,15 +4,15 @@ import statistics
 import torch
 from torch_geometric.data import Data
 import torch.nn as nn
-from torch_geometric.nn import GCNConv, global_mean_pool, GATConv
+from torch_geometric.nn import GCNConv, global_mean_pool, GATConv, SAGEConv
 import torch.optim as optim
 import torch.nn.functional as F
 from sklearn.preprocessing import OneHotEncoder
 import numpy as np
-from captum.attr import IntegratedGradients
-import matplotlib.pyplot as plt
 
 #add explainable ai
+#add Attention module
+#add partial calculation
 class AttentionModule(nn.Module):
     def __init__(self, input_dim):
         super(AttentionModule, self).__init__()
@@ -22,34 +22,20 @@ class AttentionModule(nn.Module):
         attn_scores = torch.sigmoid(self.attn(x))  # Compute attention scores
         attn_x = x * attn_scores  # Apply attention
         return attn_x
-'''
-class WeightedMessagePassing(MessagePassing):
-    def __init__(self, in_channels, out_channels):
-        super(WeightedMessagePassing, self).__init__(aggr='add')
-        self.lin = nn.Linear(in_channels, out_channels)
-    
-    def forward(self, x, edge_index, node_importance):
-        # Propagate messages while passing the node importance.
-        return self.propagate(edge_index, x=x, node_importance=node_importance)
-    
-    def message(self, x_j, node_importance):
-        # Multiply each neighbor's message by its corresponding importance weight.
-        return self.lin(x_j) * node_importance.view(-1, 1)
-'''
 
 # 🔹 Updated Graph Encoder with Attention
 class GraphEncoder(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
         super(GraphEncoder, self).__init__()
-        self.conv1 = GATConv(input_dim, hidden_dim)  # Use GAT for better learning
-        self.conv2 = GATConv(hidden_dim, output_dim)
-        self.attn = AttentionModule(output_dim)
+        self.conv1 = SAGEConv(input_dim, hidden_dim)
+        self.conv2 = SAGEConv(hidden_dim, output_dim)
+        #self.attn = AttentionModule(output_dim)
 
     def forward(self, x, edge_index, edge_attr):
-        x = self.conv1(x, edge_index, edge_attr)
+        x = self.conv1(x, edge_index)
         x = F.relu(x)
-        x = self.conv2(x, edge_index, edge_attr)
-        x = self.attn(x)  # Apply attention module
+        x = self.conv2(x, edge_index)
+        #x = self.attn(x)  # Apply attention module
         x = global_mean_pool(x, batch=None)  
         return x
 
@@ -159,19 +145,22 @@ def getting_data_in_dict(data):
     for i1, i2, i3, i4,i5 in zip(activity_name, start_time, duration, end_time,locations):
         reference_graph['nodes'].append((i1, statistics.mean(start_time[i2]), statistics.mean(duration[i3]), statistics.mean(end_time[i4]),i5))
     
-    
+    flag = 0
     temp = {}
-    temp_list=[]
-    for i1,j1 in data.iterrows():
-        temp_list.append(j1[0])
-        if len(temp_list)>1:
-            try:
-                temp[(temp_list[-2],temp_list[-1])]+=1
-            except:
-                temp[(temp_list[-2],temp_list[-1])]=1
+    for i1 in activity_name:
+        counter = 0
+        for i2, j2 in data.iterrows():
+            if flag == 1:
+                flag = 0
+                temp[(i1, j2[0])] = counter
+            if i1 == j2[0]:
+                counter += 1
+                flag = 1
+                continue
+    
     for i, j in temp.items():
         i1, i2 = i
-        reference_graph['edges'].append((i1, i2, {'weights': j/10}))
+        reference_graph['edges'].append((i1, i2, {'weights': j}))
     
     return reference_graph
 
@@ -186,7 +175,6 @@ counter = 0
 l2=[]
 l3=[]
 l4=[]
-
 # Load healthy data
 for i in os.listdir("C:\\Users\\jag7b\\project ankit sir\\healty"):
     if i[-4:] == "xlsx":
@@ -197,8 +185,7 @@ for i in os.listdir("C:\\Users\\jag7b\\project ankit sir\\healty"):
             data_test = pd.concat([data_test, df])    
         elif counter>10 and counter <=20:
             df = pd.read_excel("C:\\Users\\jag7b\\project ankit sir\\healty\\" + i)
-            #add pd.concat for taking data for multiple days
-            data_train = pd.concat([data_train,df])
+            data_train = pd.concat([data_train, df]) if not data_train.empty else df
         else:
             df = pd.read_excel("C:\\Users\\jag7b\\project ankit sir\\healty\\" + i)
             l2.append(df)
@@ -219,7 +206,6 @@ for i in os.listdir("C:\\Users\\jag7b\\project ankit sir\\different"):
             data_train_dif = pd.concat([data_train_dif, df])
 print("done2")
 # Process data
-
 other_graph = []
 for i in l1:
     i.reset_index(drop=True, inplace=True)
@@ -234,42 +220,17 @@ reference_graph = getting_data_in_dict(data_train)
 # Fit OneHotEncoder
 encoder,encoder2 = fit_one_hot_encoder(reference_graph)
 ref_node_names = [node[0] for node in reference_graph['nodes']]
+# Convert graphs to PyTorch Geometric Data format
 ref_graph_data = create_graph_data(reference_graph, encoder,encoder2, ref_node_names)
-ref_graph_data_list=[]
-partial_ref_graph_data=create_graph_data({'nodes':reference_graph['nodes'][:7],'edges':reference_graph['edges'][:6]},encoder,encoder2,ref_node_names)
-for i in range(2,36):
-    ref_graph_data_list.append(create_graph_data({'nodes':reference_graph['nodes'][:i],'edges':reference_graph['edges'][:i-1]},encoder,encoder2,ref_node_names))
 other_graph_data = []
 for i in other_graph:
     other_graph_data.append(create_graph_data(i, encoder,encoder2, ref_node_names))
-
 test1=create_graph_data(getting_data_in_dict(data_test),encoder,encoder2,ref_node_names)
 test2=create_graph_data(getting_data_in_dict(data_train_dif),encoder,encoder2,ref_node_names)
 
-partial_test1_dict=getting_data_in_dict(data_test)
-partial_test2_dict=getting_data_in_dict(data_train_dif)
-partial_test3_dict=getting_data_in_dict(l2[0])
-partial_test4_dict=getting_data_in_dict(l3[0])
-partial_test5_dict=getting_data_in_dict(l4[0])
-partial_test_list1=[]
-partial_test_list2=[]
-partial_test_list3=[]
-partial_test_list4=[]
-partial_test_list5=[]
-for i in range(2,36):
-    partial_test_list1.append(create_graph_data({'nodes':partial_test1_dict['nodes'][:i],'edges':partial_test1_dict['edges'][:i-1]},encoder,encoder2,ref_node_names))
-    partial_test_list2.append(create_graph_data({'nodes':partial_test2_dict['nodes'][:i],'edges':partial_test2_dict['edges'][:i-1]},encoder,encoder2,ref_node_names))
-
-    partial_test_list3.append(create_graph_data({'nodes':partial_test3_dict['nodes'][:i],'edges':partial_test3_dict['edges'][:i-1]},encoder,encoder2,ref_node_names))
-    partial_test_list4.append(create_graph_data({'nodes':partial_test4_dict['nodes'][:i],'edges':partial_test4_dict['edges'][:i-1]},encoder,encoder2,ref_node_names))
-    
-    partial_test_list5.append(create_graph_data({'nodes':partial_test5_dict['nodes'][:i],'edges':partial_test5_dict['edges'][:i-1]},encoder,encoder2,ref_node_names))
-
 # Initialize model, optimizer, and loss function
 model = G2GSimilarityNet(input_dim=ref_graph_data.x.size(1), hidden_dim=128, output_dim=16)
-model2 = G2GSimilarityNet(input_dim=ref_graph_data.x.size(1), hidden_dim=128, output_dim=16)
-optimizer = optim.Adam(model.parameters(), lr=0.01)
-optimizer2 = optim.Adam(model2.parameters(), lr=0.01)
+optimizer = optim.Adam(model.parameters(), lr=0.01)  # Adjusted learning rate
 criterion = nn.BCEWithLogitsLoss()
 datas=[]
 for i in l2:
@@ -278,21 +239,15 @@ for i in l3:
     datas.append(create_graph_data(getting_data_in_dict(i),encoder,encoder2,ref_node_names))
 for i in l4:
     datas.append(create_graph_data(getting_data_in_dict(i),encoder,encoder2,ref_node_names))
-temp_count=1
-training_list=[]
-for i in l2:
-    training_list.append(create_graph_data(getting_data_in_dict(i),encoder,encoder2,ref_node_names))
-training_list.extend(partial_test_list3)
-node_importance = torch.ones(ref_graph_data.x.size(0))
-node_importance[0] = 2.0
-
+print(getting_data_in_dict(data_test))
+print(getting_data_in_dict(l2[0]))
 
 for epoch in range(1000):
     model.train()
     optimizer.zero_grad()
 
     # Compute positive similarity
-    pos_similarity = [model(ref_graph_data,i) for i in training_list]
+    pos_similarity = [model(ref_graph_data,datas[i]) for i in range(len(l2))]
 
     # Compute negative similarities
     neg_similarities = [model(ref_graph_data, i) for i in other_graph_data]
@@ -302,10 +257,6 @@ for epoch in range(1000):
     
     labels = torch.tensor([1]*len(pos_similarity)+[0]*len(neg_similarities),dtype=float)
     loss = criterion(predictions, labels)
-    
-    loss = (loss * node_importance.view(-1, 1)).mean()
-    
-    
     loss.backward()
     optimizer.step()
     # Logging every 100 epochs
@@ -314,28 +265,25 @@ for epoch in range(1000):
             test_score_1 = torch.sigmoid(model(ref_graph_data, test1)).item()
             test_score_2 = torch.sigmoid(model(ref_graph_data, test2)).item()
         print(f"Epoch {epoch}: Loss={loss.item():.4f}, Test1={round(test_score_1, 2)}, Test2={round(test_score_2, 2)}")
-    if loss.item()<=0.1:
-        break
-model.eval()
-tp=0; tn=0; fp=0; fn=0
-with torch.no_grad():
-    for i in range(len(datas)):
-        if i>=len(l2)+len(l3):
-            score=round(torch.sigmoid(model(ref_graph_data,datas[i])).item(),2)
-            if score>.5:
-                tp+=1
-            else:
-                fn+=1
-        if i>=len(l2) and i<len(l2)+len(l3):
-            score=round(torch.sigmoid(model(ref_graph_data,datas[i])).item(),2)
-            if score<.5:
-                tn+=1
-            else:
-                fp+=1
+
+tp=0; fp=0; fn=0; tn=0
+for i in range(len(datas)):
+    if i>=len(l2)+len(l3)-1:
+        score=round(torch.sigmoid(model(ref_graph_data,datas[i])).item(),2)
+        if score>.5:
+            tp+=1
+        else:
+            fn+=1
+    if i>=len(l2)-1 and i<len(l2)+len(l3)-1:
+        score=round(torch.sigmoid(model(ref_graph_data,datas[i])).item(),2)
+        if score<.5:
+            tn+=1
+        else:
+            fp+=1
 acc = (tp+tn)/(tp+tn+fp+fn+1e-9)
 prec = tp/(tp+fp+1e-9)
 rec = tp/(tp+fn+1e-9)
-res_df = pd.DataFrame({"File": ["attentiongnn.py"], "Technique": ["GAT + Attention Similarity"], "Accuracy": [acc], "Precision": [prec], "Recall": [rec]})
+res_df = pd.DataFrame({"File": ["graphsage_similarity.py"], "Technique": ["GraphSAGE Similarity"], "Accuracy": [acc], "Precision": [prec], "Recall": [rec]})
 import os
 try:
     if os.path.exists("metrics_results.xlsx"):
@@ -346,5 +294,3 @@ try:
 except Exception as e:
     print(e)
 print("Metrics saved.")
-
-

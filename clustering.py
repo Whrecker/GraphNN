@@ -221,22 +221,58 @@ training_list=[]
 for i in l2:
     training_list.append(create_graph_data(getting_data_in_dict(i),encoder,encoder2,ref_node_names))
 training_list.extend(partial_test_list3)
-graph_embeddings = []
-for data in datas:
-    # Create a dummy batch vector of zeros (all nodes belong to graph 0)
-    batch = torch.zeros(data.x.size(0), dtype=torch.long)
-    # Apply mean‐pool over all nodes in the graph → [1, node_feat_dim]
-    emb = global_mean_pool(data.x, batch)  
-    graph_embeddings.append(emb.squeeze().numpy())
+class GNN(torch.nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super().__init__()
+        self.conv1 = GCNConv(input_dim, hidden_dim)
+        self.conv2 = GCNConv(hidden_dim, output_dim)
 
-# Stack into shape (n_graphs, node_feat_dim)
-X = np.vstack(graph_embeddings)
+    def forward(self, x, edge_index, batch=None):
+        x = self.conv1(x, edge_index)
+        x = torch.relu(x)
+        x = self.conv2(x, edge_index)
+        if batch is None:
+            batch = torch.zeros(x.size(0), dtype=torch.long)
+        return global_mean_pool(x, batch)
+
+# Initialize model and optimizer
+model = GNN(input_dim=ref_graph_data.x.size(1), hidden_dim=16, output_dim=2)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+
+model.train()
+ref_embedding = model(ref_graph_data.x, ref_graph_data.edge_index)
+ref_embedding = ref_embedding.detach()
+for epoch in range(1000):
+    total_loss = 0
+    optimizer.zero_grad()
+    for data in training_list:
+        adj_recon = model(data.x, data.edge_index)
+        loss = F.mse_loss(adj_recon, ref_embedding)
+        loss.backward()
+        total_loss += loss.item()
+    optimizer.step()
+    if epoch % 10 == 0:
+        print(f"Epoch {epoch}, Loss: {total_loss / len(training_list)}")
+
+def get_embeddings(model, graph_list):
+    embeddings = []
+    for graph in graph_list:
+        with torch.no_grad():
+            emb = model(graph.x, graph.edge_index)
+        embeddings.append(emb.squeeze().detach().numpy())
+    return np.array(embeddings)
+
+embedding = get_embeddings(model, datas)
+embeddings = embedding.mean(axis=1)
+embeddings = embeddings.reshape(-1, 1)
+embeddings = embeddings.astype(np.float64)
 
 # Now run KMeans
 kmeans = KMeans(n_clusters=2, random_state=0)
-cluster_labels = kmeans.fit_predict(X)
+cluster_labels = kmeans.fit_predict(embeddings)
 print(cluster_labels)
 
+from sklearn.metrics import accuracy_score, precision_score, recall_score
 acc_checker=[]
 for i in range(len(datas)):
     if i<len(l2):
@@ -245,42 +281,21 @@ for i in range(len(datas)):
         acc_checker.append(1)
     if i>=len(l2)+len(l3) and i<len(l2)+len(l3)+len(l4):
         acc_checker.append(0)
-# Print cluster assignments
-acc=0
-for i, label in enumerate(cluster_labels):
-    if acc_checker[i]==label:
-        acc+=1
-print(acc/len(datas))
 
+acc = accuracy_score(acc_checker, cluster_labels)
+prec = precision_score(acc_checker, cluster_labels, zero_division=0)
+rec = recall_score(acc_checker, cluster_labels, zero_division=0)
 
-graph_embeddings=[]
-for data in full_partial_test:
-    # Create a dummy batch vector of zeros (all nodes belong to graph 0)
-    batch = torch.zeros(data.x.size(0), dtype=torch.long)
-    # Apply mean‐pool over all nodes in the graph → [1, node_feat_dim]
-    emb = global_mean_pool(data.x, batch)  
-    graph_embeddings.append(emb.squeeze().numpy())
-
-# Stack into shape (n_graphs, node_feat_dim)
-X = np.vstack(graph_embeddings)
-
-k = 2  # Adjust based on your use case
-kmeans = KMeans(n_clusters=2, random_state=0)
-cluster_labels = kmeans.fit_predict(X)
-acc_checker=[]
-for i in range(len(full_partial_test)):
-    if i<len(partial_test_list1):
-        acc_checker.append(1)
-    if i>=len(partial_test_list1) and i<len(partial_test_list1)+len(partial_test_list2):
-        acc_checker.append(0)
-    if i>=len(partial_test_list1)+len(partial_test_list2) and i<len(partial_test_list1)+len(partial_test_list2)+len(partial_test_list4):
-        acc_checker.append(0)
-    if i>=len(partial_test_list1)+len(partial_test_list2)+len(partial_test_list4) and i<len(partial_test_list1)+len(partial_test_list2)+len(partial_test_list4)+len(partial_test_list5):
-        acc_checker.append(1)
-acc=0
-for i, label in enumerate(cluster_labels):
-    if acc_checker[i]==label:
-        acc+=1
-print(acc/len(full_partial_test))        
+res_df = pd.DataFrame({"File": ["clustering.py"], "Technique": ["GCN + KMeans Clustering"], "Accuracy": [acc], "Precision": [prec], "Recall": [rec]})
+import os
+try:
+    if os.path.exists("metrics_results.xlsx"):
+        with pd.ExcelWriter("metrics_results.xlsx", mode="a", engine="openpyxl", if_sheet_exists="overlay") as writer:
+            res_df.to_excel(writer, startrow=writer.sheets["Sheet1"].max_row, index=False, header=False)
+    else:
+        res_df.to_excel("metrics_results.xlsx", index=False)
+except Exception as e:
+    print(e)
+print("Metrics saved.")
 
 
